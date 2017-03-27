@@ -1,0 +1,508 @@
+var canvasWidth=480;  //画布的宽，
+var canvasHeight=650; //画布的高，
+
+var score=0; //玩家的积分
+var scores=0  //玩家的历史最高得分
+var lives=3; //玩家剩余的命数
+localStorage.getItem('scores')!=null&&(scores=localStorage.getItem('scores'));
+
+var canvas=document.getElementById('gameCanvas');
+canvas.width=canvasWidth;
+canvas.height=canvasHeight;
+var ctx=canvas.getContext('2d');
+/********** 设置游戏的各个不同状态 **********/
+const PHASE_DOWNLOADING=1; //图片下载阶段
+const PHASE_READY=2;       //游戏的开始
+const PHASE_STARTING=3;    //游戏的开始阶段
+const PHASE_PLAY=4;		   //游戏的进行中
+const PHASE_PAUSE=5;	   //游戏的暂停
+const PHASE_GAMEOVER=6;    //游戏结束
+const PHASE_SHOWTXT=7;     //显示游戏结束字体的状态
+var cur_phase = PHASE_DOWNLOADING;  //游戏状态的初始化
+
+
+/**** 阶段1： 加载阶段 ****/
+var progress=0;
+/****** 绘制圆 *******/
+function drawProgress(progress){
+	ctx.clearRect(0,0,canvasWidth,canvasHeight);
+	ctx.lineWidth='10';
+	ctx.strokeStyle='#666';
+	ctx.beginPath();
+	var startAngle=-Math.PI/2;
+	var endAngle=(progress*36/10-90)*Math.PI/180;
+	ctx.arc(canvasWidth/2,canvasHeight/2,60,startAngle,endAngle);
+	ctx.stroke();
+	var txt=progress+'%';
+	var txtWidth=ctx.measureText(txt).width;
+	ctx.font = '40px SimHei';
+	ctx.fillText(txt,(canvasWidth-txtWidth)/2,340);
+	if(progress>=100){
+		cur_phase=PHASE_READY;  //进入就绪阶段
+		sky=new Sky(imgBackground); //画天空
+		startEngine();   //启动动画引擎
+	}
+}
+/***** 每个类型的图片做一个数组 每个对象的状态不一样*****/
+var imgBackground=new Image();
+var imgBullet1=new Image();
+var imgsEnemy1=[new Image(),new Image(),new Image(),new Image(),new Image()];
+var imgsEnemy2=[new Image(),new Image(),new Image(),new Image(),new Image()];
+var imgsEnemy3=[new Image(),new Image(),new Image(),new Image(),new Image(),new Image(),new Image(),new Image(),new Image()];
+var imgsGameLoading=[new Image(),new Image(),new Image(),new Image()];
+var imgGamePause=new Image();
+var imgsHero=[new Image(),new Image(),new Image(),new Image(),new Image(),new Image()];
+var imgStart=new Image();
+dowloadResource();
+/***** 模仿缓冲图片进度条 *****/
+function dowloadResource(){
+	/*** 游戏背景图 ***/
+	imgBackground.src='img/background.png';
+	imgBackground.onload=function(){
+		progress+=4;
+		drawProgress(progress);
+	}
+	/*** 子弹 ***/
+	imgBullet1.src='img/bullet1.png';
+	imgBullet1.onload=function(){
+		progress+=3;
+		drawProgress(progress);
+	}
+	/*** 敌机1 ***/
+	for(var i=0;i<imgsEnemy1.length;i++){
+		if(i==0){
+			imgsEnemy1[i].src='img/enemy1.png';
+		}else{
+			imgsEnemy1[i].src='img/enemy1_down'+i+'.png';		
+		}
+		imgsEnemy1[i].onload=function(){
+			progress+=3;
+			drawProgress(progress);
+		}
+	}
+	/*** 敌机2 ***/
+	for(var i=0;i<imgsEnemy2.length;i++){
+		if(i==0){
+			imgsEnemy2[i].src='img/enemy2.png';
+		}else{
+			imgsEnemy2[i].src='img/enemy2_down'+i+'.png';		
+		}
+		imgsEnemy2[i].onload=function(){
+			progress+=3;
+			drawProgress(progress);
+		}
+	}
+	/*** 敌机3 ***/
+	for(var i=0;i<imgsEnemy3.length;i++){
+		if(i<=1){
+			imgsEnemy3[i].src='img/enemy3_n'+(i+1)+'.png';
+		}else if(i==2){
+			imgsEnemy3[i].src='img/enemy3_hit.png';		
+		}else{
+			imgsEnemy3[i].src='img/enemy3_down'+(i-2)+'.png';	
+		}
+		imgsEnemy3[i].onload=function(){
+			progress+=3;
+			drawProgress(progress);
+		}
+	}
+	/*** 游戏加载时候的小飞机 ***/
+	for(var i=0;i<imgsGameLoading.length;i++){
+		imgsGameLoading[i].src='img/game_loading'+(i+1)+'.png';
+		imgsGameLoading[i].onload=function(){
+			progress+=3;
+			drawProgress(progress);
+		}
+	}
+	imgGamePause.src='img/game_pause_nor.png';
+	imgGamePause.onload=function(){
+		progress+=3;
+		drawProgress(progress);
+	}
+	/*** 英雄 ***/
+	for(var i=0;i<imgsHero.length;i++){
+		if(i<=1){
+			imgsHero[i].src='img/hero'+(i+1)+'.png';
+		}else{
+			imgsHero[i].src='img/hero_blowup_n'+(i-1)+'.png';
+		}
+		imgsHero[i].onload=function(){
+			progress+=3;
+			drawProgress(progress);
+		}
+	}
+	/*** 英雄 ***/
+	imgStart.src='img/start.png';
+	imgStart.onload=function(){
+		progress+=3;
+		drawProgress(progress);
+	}
+}
+
+/**** 阶段2： ****/
+var sky=null;
+//天空的构造方法(构造函数)     面向对象的方法
+function Sky(img){
+	this.x1=0;
+	this.y1=0;
+	this.x2=0;
+	this.y2=-img.height;
+	this.draw=function(){
+		ctx.drawImage(img,this.x1,this.y1);
+		ctx.drawImage(img,this.x2,this.y2);
+	}
+	this.move=function(){
+		this.y1+=2;
+		this.y2+=2;
+		if(this.y1>=canvasHeight){
+			this.y1=this.y2-img.height;
+		}
+		if(this.y2>=canvasHeight){
+			this.y2=this.y1-img.height;
+		}
+	}
+}
+//绘制logo的方法
+function drawLogo(){
+	ctx.drawImage(imgStart,(canvasWidth-imgStart.width)/2,(canvasHeight-imgStart.height)/2);
+}
+
+//为画布添加单击事件监听函数
+canvas.addEventListener('click',function(){
+	if(cur_phase==PHASE_READY){
+		cur_phase= PHASE_STARTING;
+		runningPlane=new RunningPlane(imgsGameLoading);//进入开始阶段
+	}
+},false);
+
+/**** 阶段3： PIASE_STARTING****/
+var runningPlane=null;
+//绘制飞行的小飞机的构造函数
+function RunningPlane(imgsGameLoading){
+	this.x=(canvasWidth-imgsGameLoading[0].width)/2;
+	this.y=canvasHeight-imgsGameLoading[0].height;
+	this.index=0;
+	this.draw=function(){
+		ctx.drawImage(imgsGameLoading[this.index],this.x,this.y);
+	}
+	this.moveCount=0; //新建一个中间判断的变量  目的在于调节速度的
+	this.move=function(){
+		this.moveCount++;
+		if(this.moveCount%6==0){
+			this.index++;
+			if(this.index==imgsGameLoading.length){
+				cur_phase=PHASE_PLAY;
+				hero=new Heros(imgsHero);
+				bulletList=new BulletList();
+				enemyList=new EnemyList();
+			}
+		}
+	}
+}
+/*** 游戏的暂停 ***/
+function Pause(){
+	ctx.drawImage(imgGamePause,(canvasWidth-imgGamePause.width)/2,(canvasHeight-imgGamePause.height)/2);
+}
+/**** 阶段4： PHASE_PLAY****/
+/******** 我方英雄列表 ********/
+var hero=null;
+function Heros(imgs){
+	this.width=imgs[0].width;
+	this.height=imgs[0].height;
+	this.x=(canvasWidth-imgs[0].width)/2;
+	this.y=canvasHeight-imgs[0].height;
+	this.index=0;
+	this.crashed = false;  //玩家英雄是否可以删除
+	this.moveCount = 0;
+	this.draw=function(){
+		ctx.drawImage(imgs[this.index],this.x,this.y);
+	}
+	this.move=function(){
+		this.moveCount++;
+		if(!this.crashed){
+			if(this.index==0)this.index=1;
+			else if(this.index==1)this.index=0;
+			if(this.moveCount%4==0){
+				var bullet = new Bullet(imgBullet1);
+				bulletList.add(bullet);
+			}
+		}else{
+			if(this.index==0){
+				this.index=1;
+			}
+			if(this.moveCount%15==0){
+				this.index++;
+			}
+			if(this.index==imgs.length){
+				cur_phase=PHASE_GAMEOVER;
+				return;
+			}
+		}
+	};
+	canvas.onmousemove=function(e){
+		cur_phase==PHASE_PAUSE&&(cur_phase=PHASE_PLAY);
+		var x=e.offsetX-imgs[0].width/2;
+		var y=e.offsetY-imgs[0].height/2;
+		hero.x=x;
+		hero.y=y;
+	};
+}
+canvas.onmouseout=function(){
+	cur_phase==PHASE_PLAY&&(cur_phase=PHASE_PAUSE);
+} 
+/** 每个子弹的构造函数 **/
+function Bullet(img){
+	this.width=img.width;
+	this.height=img.height;
+	this.x=hero.x+(imgsHero[0].width-img.width)/2;
+	this.y=hero.y-img.height;
+	this.draw=function(wid){
+		ctx.drawImage(img,this.x+this.width,this.y);
+	}
+	this.removable=false;  //子弹是否可以删除
+	this.move=function(){
+		this.y-=6;
+		if(this.y<=-img.height){
+			this.removable=true;
+		}
+	}
+}
+/** 所有子弹的列表 **/
+var bulletList=null; 
+function BulletList(){
+	this.list = [];
+	this.add=function(bullet){
+		this.list.push(bullet);
+	}
+	this.draw=function(){
+		for(var i=0;i<this.list.length;i++){
+			this.list[i].draw();
+		}
+	}
+	this.move=function(){
+		for(var i=0;i<this.list.length;i++){
+			this.list[i].move();
+			if(this.list[i].removable==true){
+				this.list.splice(i,1);
+				i--;
+			}
+		}
+	}
+}
+/******** 敌机列表 ********/
+function Enemy1(imgs){
+	this.width=imgs[0].width;
+	this.height=imgs[0].height;
+	this.x=Math.random()*(canvasWidth-this.width);
+	this.y=-this.height;
+	this.bottom=imgs[0].height+this.y;
+	this.index=0;
+	this.blood=1;  //敌机的血量
+	this.removable=false;  //清除敌机
+	this.score=10;  //击落后我方英雄的得分
+	this.crashed=false;  //被撞毁了吗
+	this.moveCount=0;
+	this.draw=function(){
+		ctx.drawImage(imgs[this.index],this.x,this.y);
+	}
+	this.move=function(){
+		this.moveCount++;
+		this.y+=10;
+		if(this.y>=canvasHeight){
+			this.removable=true;
+		}
+		if(this.crashed&&this.moveCount%3==0){
+			this.index++;
+			if(this.index==imgs.length){
+				this.removable=true;
+			}
+		}
+	}
+}
+function Enemy2(imgs){
+	this.width=imgs[0].width;
+	this.height=imgs[0].height;
+	this.x=Math.random()*(canvasWidth-this.width);
+	this.y=-this.height;
+	this.bottom=imgs[0].height+this.y;
+	this.index=0;
+	this.blood=4;  //敌机的血量
+	this.removable=false;
+	this.score=50;  //击落后我方英雄的得分
+	this.crashed=false;  //被撞毁了吗
+	this.moveCount=0;
+	this.draw=function(){
+		ctx.drawImage(imgs[this.index],this.x,this.y);
+	}
+	this.move=function(){
+		this.moveCount++;
+		this.y+=6;
+		if(this.y>=canvasHeight){
+			this.removable=true;
+		}
+		if(this.crashed==true&&this.moveCount%3==0){
+			this.index++;
+			if(this.index==imgs.length){
+				this.removable=true;
+			}
+		}
+	}
+}
+function Enemy3(imgs){
+	this.width=imgs[0].width;
+	this.height=imgs[0].height;
+	this.x=Math.random()*(canvasWidth-this.width);
+	this.y=-this.height;
+	this.bottom=imgs[0].height+this.y;
+	this.index=0;
+	this.blood=10;  //敌机的血量
+	this.removable=false;  //是否可以删除敌机
+	this.score=150;  //击落后我方英雄的得分
+	this.crashed=false;  //被撞毁了吗
+	this.moveCount=0;
+	this.draw=function(){
+		ctx.drawImage(imgs[this.index],this.x,this.y);
+	}
+	this.move=function(){
+		this.moveCount++;
+		this.y+=3;
+		if(this.y>=canvasHeight){
+			this.removable=true;
+		}
+		if(!this.crashed){
+			if(this.index==0)this.index=1;
+			if(this.index==1)this.index=0;
+		}else{
+			if(this.index==0||this.index==1){
+				this.index=2;
+			}
+			if(this.moveCount%3==0){
+				this.index++;
+				if(this.index==imgs.length){
+					this.removable=true;
+				}
+			}
+		}
+	}
+}
+var enemyList=null;
+function EnemyList(){
+	this.list=[];
+	this.blCount=1;
+	this.add=function(enemy){
+		this.list.push(enemy);
+	}
+	this.draw=function(){
+		for(var i=0;i<this.list.length;i++){
+			this.list[i].draw();
+		}
+	}
+	this.move=function(){
+		/**** 随机生成敌机 ****/
+		var num=Math.floor(Math.random()*200);
+		if(num<6){
+			this.add(new Enemy1(imgsEnemy1)); 
+		}else if(num<9){
+			this.add(new Enemy2(imgsEnemy2)); 
+		}else if(num<10){
+			this.add(new Enemy3(imgsEnemy3)); 
+		}
+		/**** 移动每个敌机 ****/
+
+		/**********  敌方飞机与我方子弹碰撞  **********/
+		var me=this;
+		for(var i=0;i<this.list.length;i++){
+			var e=this.list[i];
+			e.move();
+			if(e.removable){
+				this.list.splice(i,1);
+				i--;
+			}
+			for(var j=0;j<bulletList.list.length;j++){
+				var bullet=bulletList.list[j];
+				if(e.x+e.width>=bullet.x&&
+					bullet.x+bullet.width>=e.x&&
+					e.y+e.height>=bullet.y&&
+					bullet.y+bullet.height>=e.y
+					){
+						bullet.removable =true;//当前的子弹可以删除掉
+						e.blood--;   //敌机血量减1
+						if(e.blood==0){   //判断敌机血量是否为0
+							e.crashed=true;
+							score+=e.score;   //加上分数
+						}
+				}
+			}
+		/**********  敌方飞机与我方飞机碰撞  **********/
+			if(hero.x+hero.width>=e.x&&
+				e.x+e.width>=hero.x&&
+				hero.y+hero.height>=e.y&&
+				e.y+e.height>=hero.y&&me.blCount==1&&!e.crashed
+				){
+				me.blCount=0;
+				lives--;
+				hero.index=2;
+				setTimeout(function(){me.blCount=1;if(lives>0){hero.index=1}},3000);
+				if(lives<=0){
+					hero.crashed=true;
+				}
+			}
+		}
+	}
+}
+/**** 阶段5： ****/
+
+/**** 游戏的主引擎---周期固定的定时器****/
+var txt1=null,txt2=null;  //记录得分情况
+function startEngine(){
+	setInterval(function(){
+		sky.draw();
+		sky.move();
+		switch(cur_phase){
+			case PHASE_READY:
+				drawLogo();
+				break;
+			case PHASE_STARTING:
+				runningPlane.draw();
+				runningPlane.move();
+				break;
+			case PHASE_PLAY:
+				hero.draw();
+				hero.move();
+				bulletList.draw();
+				bulletList.move();
+				enemyList.draw();
+				enemyList.move();
+				break;
+			case PHASE_PAUSE:
+				hero.draw();
+				Pause();
+				bulletList.draw();
+				enemyList.draw();
+				break;
+			case PHASE_GAMEOVER:
+				if(score>scores){
+					scores=score;
+					txt1='新纪录：'+scores;
+					txt2='';
+					window.localStorage.setItem('scores',scores);
+				}else{
+					txt1='历史最高得分'+scores;
+					txt2='本局得分'+score;
+				}
+				cur_phase=PHASE_SHOWTXT;
+				break;
+			case PHASE_SHOWTXT:
+				ctx.font='50px SimHei';
+				ctx.fillText('GAME OVER',(canvasWidth-ctx.measureText('GAME OVER').width)/2,200);
+				ctx.fillText(txt1,(canvasWidth-ctx.measureText(txt1).width)/2,320);
+				ctx.fillText(txt2,(canvasWidth-ctx.measureText(txt2).width)/2,440);
+				break;
+		}
+			ctx.font='20px SimHei';
+			ctx.fillText('历史最高得分：'+scores,5,20);
+			ctx.fillText('本局得分：'+score,5,40);
+			var liveTxt='生命值:'+lives;
+			ctx.fillText(liveTxt,canvasWidth-ctx.measureText(liveTxt).width-5,20);
+	},42);
+}
